@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -172,6 +173,40 @@ func TestAntigravityBuildRequest_PreservesIndependentWebSearchRequestType(t *tes
 	}
 	if got, ok := body["project"].(string); !ok || got != "project-1" {
 		t.Fatalf("project should come from auth metadata, got=%v", body["project"])
+	}
+}
+
+func TestAntigravityBuildRequest_PreservesFunctionCallArgumentsDuringSchemaSanitization(t *testing.T) {
+	payload := []byte(`{
+		"request": {
+			"contents": [{
+				"role": "model",
+				"parts": [{"functionCall": {"name": "write_file", "args": {
+					"title": "keep me",
+					"format": "markdown",
+					"default": "fallback",
+					"const": "literal"
+				}}}]
+			}],
+			"tools": [{"functionDeclarations": [{
+				"name": "write_file",
+				"parametersJsonSchema": {
+					"type": "object",
+					"properties": {"title": {"type": "string", "minLength": 1}}
+				}
+			}]}]
+		}
+	}`)
+
+	var original map[string]any
+	if err := json.Unmarshal(payload, &original); err != nil {
+		t.Fatal(err)
+	}
+	body := buildRequestBodyFromRawPayload(t, "gemini-3-flash", payload)
+	originalContents := original["request"].(map[string]any)["contents"]
+	actualContents := body["request"].(map[string]any)["contents"]
+	if !reflect.DeepEqual(actualContents, originalContents) {
+		t.Fatalf("schema sanitization mutated function-call history\nwant: %#v\ngot:  %#v", originalContents, actualContents)
 	}
 }
 
